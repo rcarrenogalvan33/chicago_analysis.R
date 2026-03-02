@@ -1,18 +1,23 @@
-# Title: Chicago Community Hardship Analysis
-# Author: rcarrenogalvan33
-# Purpose: Model the non-linear relationship between income and 
-#          hardship, cleaning data and applying GAMs for better fit.
+# Title: Chicago Community Area Socioeconomic and Demographic Analysis
+# Purpose: Analyze the relationship between income and hardship, 
+#          modeling non-linearities and joining demographic data.
 
 # ==============================================================================
 # 1. Setup and Library Loading
 # ==============================================================================
 library(tidyverse)
-library(mgcv)  # Necessary for Generalized Additive Models (GAMs)
+library(mgcv)  # For Generalized Additive Models (GAMs)
 
 # ==============================================================================
-# 2. Data Preparation and Cleaning
+# 2. Data Acquisition
 # ==============================================================================
-# Generate or load data (Tribble used based on provided script)
+
+# --- A. Load Socioeconomic Data from Chicago Data Portal ---
+socio_url <- "https://data.cityofchicago.org/api/views/kn9c-c2s2/rows.csv?accessType=DOWNLOAD"
+raw_socio <- read_csv(socio_url)
+
+# --- B. Load Demographic Data (Manually created based on successful trial) ---
+# This data covers key neighborhoods for the analysis.
 df_demographics <- tribble(
   ~neighborhood,    ~percent_black, ~percent_immigrant,                
   "ENGLEWOOD",      95.0,           2.0,
@@ -26,46 +31,59 @@ df_demographics <- tribble(
   "NORTH CENTER",   2.0,            10.0
 )
 
+# ==============================================================================
+# 3. Data Cleaning and Preparation
+# ==============================================================================
 
-# Ensure neighborhood names are uppercase to match for merging.
-housing_analysis <- housing_analysis %>%
-  mutate(neighborhood = toupper(neighborhood))
+# --- A. Clean Socioeconomic Data ---
+housing_analysis <- raw_socio %>%
+  select(
+    neighborhood = `COMMUNITY AREA NAME`,
+    hardship = `HARDSHIP INDEX`,
+    poverty = `PERCENT HOUSEHOLDS BELOW POVERTY`,
+    income = `PER CAPITA INCOME`,
+    crowding = `PERCENT OF HOUSING CROWDED`
+  ) %>%
+  distinct() %>%         # Remove duplicates
+  drop_na() %>%          # Remove rows with NA values
+  mutate(neighborhood = toupper(neighborhood)) # Normalize names for joining
 
-# Merge datasets together
+# --- B. Merge Datasets ---
 master_data <- left_join(housing_analysis, df_demographics, by = "neighborhood")
 
-# Clean: Remove rows with missing data for critical demographic columns
+# --- C. Final Cleaning for Modeling ---
 cleaned_data <- master_data %>%
-  drop_na(percent_black, percent_immigrant, hardship, income)
+  drop_na(percent_black, percent_immigrant)
 
 # ==============================================================================
-# 3. Model Fitting and Diagnostics
+# 4. Modeling and Analysis
 # ==============================================================================
 
 # --- A. Linear Model (Baseline) ---
-# Formula: hardship ~ income
 linear_model <- lm(hardship ~ income, data = cleaned_data)
 summary(linear_model)
+plot(linear_model)
 
 # --- B. Polynomial Regression (Fixing Non-Linearity) ---
-# Testing a quadratic term for a curved relationship
+# Modeling a curved relationship
 poly_model <- lm(hardship ~ income + I(income^2), data = cleaned_data)
 summary(poly_model)
+plot(poly_model)
 
 # --- C. Generalized Additive Model (GAM) ---
-# Automatically models the 'wiggliness' of the curve.
-# k=3 limits the complexity to avoid overfitting on small data.
+# Modeling the smooth, non-linear effect of income
+# k=3 restricts complexity due to small sample size
 gam_model <- gam(hardship ~ s(income, k = 3), data = cleaned_data)
 summary(gam_model)
 
 # ==============================================================================
-# 4. Visualization and Verification
+# 5. Visualization
 # ==============================================================================
 
-# Check GAM assumptions (residuals, qq-plot)
+# Check GAM diagnostics
 gam.check(gam_model)
 
-# Plot the smooth curve learned by the GAM
+# Plot the GAM results
 plot(gam_model, 
      pages = 1, 
      shade = TRUE, 
